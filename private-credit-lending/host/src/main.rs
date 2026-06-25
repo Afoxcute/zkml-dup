@@ -11,7 +11,7 @@
 
 use clap::Parser;
 use risc0_ethereum_contracts::encode_seal;
-use risc0_zkvm::sha::Digest;
+use risc0_zkvm::sha::Digest as ImageDigest;
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts};
 use risk_core::{CreditApplication, Journal};
 use sha2::{Digest, Sha256};
@@ -70,7 +70,7 @@ fn main() {
 
     let seal = encode_seal(&receipt).expect("failed to encode seal");
     let journal_digest: [u8; 32] = Sha256::digest(&receipt.journal.bytes).into();
-    let image_id: [u8; 32] = Digest::from(methods::GUEST_PROGRAM_ID).into();
+    let image_id: [u8; 32] = ImageDigest::from(methods::GUEST_PROGRAM_ID).into();
 
     println!("Decision: approved={} rate_bps={} model_version={}", journal.approved, journal.rate_bps, journal.model_version);
 
