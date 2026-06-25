@@ -78,7 +78,8 @@ This was developed without a local Rust/RISC Zero/Stellar toolchain
 available in the dev environment, so it has **not** been compiled or run
 end-to-end here. Code was written carefully against the documented RISC
 Zero + `stellar-risc0-verifier` APIs, but budget time to debug a first
-build.
+build. For a full step-by-step walkthrough (install, prove, deploy,
+disburse a loan), see [RUNNING_LOCALLY.md](RUNNING_LOCALLY.md).
 
 Prerequisites:
 - Rust (`rustup`)
