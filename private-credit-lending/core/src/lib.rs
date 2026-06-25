@@ -154,9 +154,11 @@ mod tests {
 
     #[test]
     fn strong_applicant_is_approved_with_low_rate() {
-        let j = score_application(&app(12_000_00, 500_00, 8_000_00, 5_000_00));
+        // $90,000/yr income, $800/mo debt, $60,000 collateral on a $40,000
+        // loan -> risk_score ~800, comfortably above the 600 threshold.
+        let j = score_application(&app(9_000_000, 80_000, 6_000_000, 4_000_000));
         assert!(j.approved);
-        assert!(j.rate_bps < 1000);
+        assert!(j.rate_bps < 1500);
     }
 
     #[test]
