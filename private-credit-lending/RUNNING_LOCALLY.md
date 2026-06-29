@@ -246,3 +246,21 @@ to reuse one you already cloned.
   lists common failure causes).
 - **Groth16 proving hangs or fails on Apple Silicon** — expected; see the
   arm64 note in section 0.
+- **Every single contract deploy fails with `HostError: Error(Context, InternalError)` / `DebugInfo not available`, even a trivial hello-world** — this is a protocol-version mismatch between your installed `stellar-cli` and the local network's active ledger protocol, not a problem with this project's contracts. Check `stellar --version`, then start the network pinned to the matching protocol:
+  ```bash
+  stellar container stop local
+  docker rm -f stellar-local 2>/dev/null
+  stellar container start local --protocol-version 27   # match your CLI's major version
+  ```
+  `scripts/demo.sh` already does this (defaulting to 27; override with `STELLAR_PROTOCOL_VERSION=<n> ./scripts/demo.sh` if your CLI is a different version). Confirm the network is actually healthy before deploying anything — `stellar container start` returns long before Soroban RPC is ready:
+  ```bash
+  for i in $(seq 1 45); do
+    status=$(curl -sf -X POST "http://localhost:8000/soroban/rpc" \
+      -H 'Content-Type: application/json' \
+      -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' 2>/dev/null \
+      | python3 -c "import sys,json; print(json.load(sys.stdin).get('result',{}).get('status',''))" 2>/dev/null)
+    [ "$status" = "healthy" ] && break
+    sleep 2
+  done
+  ```
+- **`stellar keys fund` / friendbot connection errors right after `stellar container start local`** — same root cause as above: the container reports "Started" well before Horizon/friendbot/RPC are actually reachable. Wait for the RPC health check above (or just retry after ~20-30s) before funding or deploying.

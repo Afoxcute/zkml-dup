@@ -18,6 +18,11 @@
 # Override STEP_DELAY (seconds) to make the pauses longer/shorter, e.g.:
 #   STEP_DELAY=10 ./scripts/demo.sh
 #
+# Override STELLAR_PROTOCOL_VERSION if `stellar --version` is older/newer
+# than 27 — a mismatch between the CLI's expected protocol and the local
+# network's active protocol fails every contract deploy with an opaque
+# "HostError: Error(Context, InternalError)", not a clear version error.
+#
 # Requires: rustup, cargo risczero (+ `rzup install risc0-groth16`), Docker
 # (x86_64 host, for Groth16 proving), stellar-cli, python3.
 set -euo pipefail
@@ -107,7 +112,14 @@ IMAGE_ID=$(python3 -c "import json;print(json.load(open('$PROOF'))['image_id'])"
 log "Guest image_id: $IMAGE_ID"
 
 log "== Step 2: start local network + deploy router/verifier =="
-run_allow_fail stellar container start local
+# Pin the network to the same protocol version the installed stellar-cli
+# expects. A mismatch here (e.g. CLI 27.x against a network defaulting to
+# protocol 25) doesn't give a clear version error — it surfaces as an
+# opaque "HostError: Error(Context, InternalError)" on every single
+# contract deploy, even a trivial hello-world. Override via
+# STELLAR_PROTOCOL_VERSION if your installed CLI is older/newer.
+STELLAR_PROTOCOL_VERSION="${STELLAR_PROTOCOL_VERSION:-27}"
+run_allow_fail stellar container start local --protocol-version "$STELLAR_PROTOCOL_VERSION"
 wait_for_local_network
 wait_for_rpc_health
 run_allow_fail stellar keys generate "$IDENTITY" --network "$NETWORK"
