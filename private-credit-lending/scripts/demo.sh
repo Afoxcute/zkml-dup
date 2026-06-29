@@ -72,6 +72,29 @@ wait_for_local_network() {
   log "WARNING: friendbot still not reachable after 60s — continuing anyway, but the next command may fail. Check: docker logs stellar-local"
 }
 
+# Friendbot being reachable does NOT mean Soroban/RPC is ready to simulate
+# contract transactions — the container's own boot log shows several
+# "soroban config: ... PENDING" ledger upgrades that settle in over the
+# first ~30-60s after startup. Deploying a contract before that settles
+# fails with an opaque "HostError: Error(Context, InternalError)" and no
+# debug info. Poll stellar-rpc's getHealth until it reports "healthy".
+wait_for_rpc_health() {
+  log "Waiting for Soroban RPC to report healthy..."
+  local i status
+  for i in $(seq 1 45); do
+    status=$(curl -sf -X POST "http://localhost:8000/soroban/rpc" \
+      -H 'Content-Type: application/json' \
+      -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' 2>/dev/null \
+      | python3 -c "import sys,json; print(json.load(sys.stdin).get('result',{}).get('status',''))" 2>/dev/null || true)
+    if [ "$status" = "healthy" ]; then
+      log "Soroban RPC is healthy (took ~$((i * 2))s)"
+      return 0
+    fi
+    sleep 2
+  done
+  log "WARNING: Soroban RPC did not report healthy after 90s — continuing anyway, but contract deploys may fail with an opaque InternalError. Check: docker logs stellar-local"
+}
+
 if [ ! -d "$VERIFIER_REPO" ]; then
   log "Cloning stellar-risc0-verifier into $VERIFIER_REPO ..."
   run git clone https://github.com/NethermindEth/stellar-risc0-verifier.git "$VERIFIER_REPO"
@@ -86,6 +109,7 @@ log "Guest image_id: $IMAGE_ID"
 log "== Step 2: start local network + deploy router/verifier =="
 run_allow_fail stellar container start local
 wait_for_local_network
+wait_for_rpc_health
 run_allow_fail stellar keys generate "$IDENTITY" --network "$NETWORK"
 run stellar keys fund "$IDENTITY" --network "$NETWORK"
 
