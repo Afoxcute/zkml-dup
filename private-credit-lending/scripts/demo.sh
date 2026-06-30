@@ -18,11 +18,6 @@
 # Override STEP_DELAY (seconds) to make the pauses longer/shorter, e.g.:
 #   STEP_DELAY=10 ./scripts/demo.sh
 #
-# Override STELLAR_PROTOCOL_VERSION if `stellar --version` is older/newer
-# than 27 — a mismatch between the CLI's expected protocol and the local
-# network's active protocol fails every contract deploy with an opaque
-# "HostError: Error(Context, InternalError)", not a clear version error.
-#
 # Requires: rustup, cargo risczero (+ `rzup install risc0-groth16`), Docker
 # (x86_64 host, for Groth16 proving), stellar-cli, python3.
 set -euo pipefail
@@ -112,14 +107,7 @@ IMAGE_ID=$(python3 -c "import json;print(json.load(open('$PROOF'))['image_id'])"
 log "Guest image_id: $IMAGE_ID"
 
 log "== Step 2: start local network + deploy router/verifier =="
-# Pin the network to the same protocol version the installed stellar-cli
-# expects. A mismatch here (e.g. CLI 27.x against a network defaulting to
-# protocol 25) doesn't give a clear version error — it surfaces as an
-# opaque "HostError: Error(Context, InternalError)" on every single
-# contract deploy, even a trivial hello-world. Override via
-# STELLAR_PROTOCOL_VERSION if your installed CLI is older/newer.
-STELLAR_PROTOCOL_VERSION="${STELLAR_PROTOCOL_VERSION:-27}"
-run_allow_fail stellar container start local --protocol-version "$STELLAR_PROTOCOL_VERSION"
+run_allow_fail stellar container start local
 wait_for_local_network
 wait_for_rpc_health
 run_allow_fail stellar keys generate "$IDENTITY" --network "$NETWORK"
@@ -127,12 +115,6 @@ run stellar keys fund "$IDENTITY" --network "$NETWORK"
 
 ( cd "$VERIFIER_REPO" && run ./scripts/manage.sh deploy-router -n "$NETWORK" -a "$IDENTITY" --min-delay 0 )
 ( cd "$VERIFIER_REPO" && run ./scripts/manage.sh deploy-verifier -n "$NETWORK" -a "$IDENTITY" )
-# `verifiers` is a TOML array-of-tables ([[chains.stellar-local.verifiers]]),
-# and toml_helper.py's `read` only walks dicts, not lists — a dotted path
-# like `...verifiers.0.selector` silently fails with "key not found". Use
-# its dedicated `verifier-rows` subcommand instead (pipe-delimited:
-# name|selector|verifier|estop|unroutable), and take the first row, since
-# this demo only ever deploys one verifier.
 SELECTOR=$(python3 "$VERIFIER_REPO/scripts/toml_helper.py" verifier-rows "$VERIFIER_REPO/deployment.toml" stellar-local | head -1 | cut -d'|' -f2)
 log "Verifier selector: $SELECTOR"
 ( cd "$VERIFIER_REPO" && run ./scripts/manage.sh schedule-add-verifier -n "$NETWORK" -a "$IDENTITY" --selector "$SELECTOR" )
@@ -141,12 +123,9 @@ ROUTER=$(python3 "$VERIFIER_REPO/scripts/toml_helper.py" read "$VERIFIER_REPO/de
 log "Router contract: $ROUTER"
 
 log "== Step 3: deploy a test token + the lending pool =="
-# The native XLM Stellar Asset Contract is a per-network singleton. If a
-# previous run already deployed it, `asset deploy` fails with
-# `HostError: Error(Storage, ExistingValue)` instead of returning the
-# existing address — fall back to just looking up its contract id.
 TOKEN=$(stellar contract asset deploy --asset native --network "$NETWORK" --source "$IDENTITY" 2>/dev/null) \
   || TOKEN=$(stellar contract id asset --asset native --network "$NETWORK")
+
 log "Token contract: $TOKEN"
 sleep "$STEP_DELAY"
 
