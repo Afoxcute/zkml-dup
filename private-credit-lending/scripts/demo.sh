@@ -127,7 +127,13 @@ run stellar keys fund "$IDENTITY" --network "$NETWORK"
 
 ( cd "$VERIFIER_REPO" && run ./scripts/manage.sh deploy-router -n "$NETWORK" -a "$IDENTITY" --min-delay 0 )
 ( cd "$VERIFIER_REPO" && run ./scripts/manage.sh deploy-verifier -n "$NETWORK" -a "$IDENTITY" )
-SELECTOR=$(python3 "$VERIFIER_REPO/scripts/toml_helper.py" read "$VERIFIER_REPO/deployment.toml" chains.stellar-local.verifiers.0.selector)
+# `verifiers` is a TOML array-of-tables ([[chains.stellar-local.verifiers]]),
+# and toml_helper.py's `read` only walks dicts, not lists — a dotted path
+# like `...verifiers.0.selector` silently fails with "key not found". Use
+# its dedicated `verifier-rows` subcommand instead (pipe-delimited:
+# name|selector|verifier|estop|unroutable), and take the first row, since
+# this demo only ever deploys one verifier.
+SELECTOR=$(python3 "$VERIFIER_REPO/scripts/toml_helper.py" verifier-rows "$VERIFIER_REPO/deployment.toml" stellar-local | head -1 | cut -d'|' -f2)
 log "Verifier selector: $SELECTOR"
 ( cd "$VERIFIER_REPO" && run ./scripts/manage.sh schedule-add-verifier -n "$NETWORK" -a "$IDENTITY" --selector "$SELECTOR" )
 ( cd "$VERIFIER_REPO" && run ./scripts/manage.sh execute-add-verifier -n "$NETWORK" -a "$IDENTITY" --selector "$SELECTOR" )
@@ -135,12 +141,17 @@ ROUTER=$(python3 "$VERIFIER_REPO/scripts/toml_helper.py" read "$VERIFIER_REPO/de
 log "Router contract: $ROUTER"
 
 log "== Step 3: deploy a test token + the lending pool =="
-TOKEN=$(stellar contract asset deploy --asset native --network "$NETWORK" --source "$IDENTITY")
+# The native XLM Stellar Asset Contract is a per-network singleton. If a
+# previous run already deployed it, `asset deploy` fails with
+# `HostError: Error(Storage, ExistingValue)` instead of returning the
+# existing address — fall back to just looking up its contract id.
+TOKEN=$(stellar contract asset deploy --asset native --network "$NETWORK" --source "$IDENTITY" 2>/dev/null) \
+  || TOKEN=$(stellar contract id asset --asset native --network "$NETWORK")
 log "Token contract: $TOKEN"
 sleep "$STEP_DELAY"
 
 ( cd "$ROOT/contracts/lending-pool" && run stellar contract build )
-POOL_WASM="$ROOT/target/wasm32-unknown-unknown/release/lending_pool.wasm"
+POOL_WASM="$ROOT/contracts/lending-pool/target/wasm32v1-none/release/lending_pool.wasm"
 POOL=$(stellar contract deploy --wasm "$POOL_WASM" --network "$NETWORK" --source "$IDENTITY")
 log "Lending pool contract: $POOL"
 sleep "$STEP_DELAY"
@@ -157,7 +168,7 @@ run stellar contract invoke --network "$NETWORK" --source "$IDENTITY" --id "$POO
 SEAL=$(python3 -c "import json;print(json.load(open('$PROOF'))['seal'])")
 DECODED_BORROWER_ID=$(python3 -c "import json;print(json.load(open('$PROOF'))['decoded']['borrower_id'])")
 DECODED_AMOUNT=$(python3 -c "import json;print(json.load(open('$PROOF'))['decoded']['requested_amount_cents'])")
-DECODED_APPROVED=$(python3 -c "import json;print(json.load(open('$PROOF'))['decoded']['approved'])")
+DECODED_APPROVED=$(python3 -c "import json;v=json.load(open('$PROOF'))['decoded']['approved'];print(str(v).lower())")
 DECODED_RATE=$(python3 -c "import json;print(json.load(open('$PROOF'))['decoded']['rate_bps'])")
 DECODED_VERSION=$(python3 -c "import json;print(json.load(open('$PROOF'))['decoded']['model_version'])")
 log "Decoded journal: borrower_id=$DECODED_BORROWER_ID amount=$DECODED_AMOUNT approved=$DECODED_APPROVED rate_bps=$DECODED_RATE model_version=$DECODED_VERSION"

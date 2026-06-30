@@ -8,6 +8,53 @@ or any third party — only the proof and a handful of public decision fields
 (borrower commitment, requested amount, approved/declined, interest rate)
 do.
 
+## What zero-knowledge proofs do here
+
+Traditional DeFi lending forces a brutal trade-off: either reveal your
+private financial data to a centralised underwriter, or get no credit check
+at all and borrow only against locked collateral. This project breaks that
+trade-off.
+
+**The problem ZK solves:** a lender needs to know *"was this borrower
+genuinely approved by a fair, consistent model?"* without the borrower
+having to reveal their income, debts, or collateral to anyone — not the
+lender, not the chain, not a relayer.
+
+**How it works:**
+
+1. **Off-chain proving (private).** The borrower runs the RISC Zero guest
+   program locally. The guest takes their raw financial data, runs the
+   credit-risk scorecard, and produces a **Groth16 zero-knowledge proof**.
+   This proof is a compact cryptographic receipt — it proves the computation
+   happened correctly without revealing any of the inputs.
+
+2. **The proof binds to a specific model.** Every RISC Zero guest binary has
+   an `image_id` — a hash of its exact compiled bytecode. The lending pool
+   is initialised with the `image_id` of a specific, audited model version.
+   If anyone tampers with the scoring logic (e.g. to approve bad borrowers),
+   the `image_id` changes, and the pool's on-chain check rejects the proof.
+   The model's fairness is auditable by anyone who can read Rust, without
+   the chain ever needing to run the model.
+
+3. **On-chain verification (public).** The borrower submits only the proof
+   (`seal`), their `image_id`, and the public decision fields (amount,
+   approved, rate). The Soroban lending-pool contract re-encodes those
+   fields into the exact byte layout the guest committed, hashes them, then
+   calls Nethermind's deployed RISC Zero verifier router — a single
+   `verify(seal, image_id, journal_digest)` cross-contract call. If it
+   returns without reverting, the proof is valid, and the funds are
+   disbursed at the proven rate.
+
+**What the chain never sees:** annual income, monthly debt payments,
+collateral value, or the borrower's real identity (only a hash).
+
+**What the chain does see:** a cryptographic proof that a committed,
+tamper-evident model approved this borrower for this exact amount at this
+exact rate.
+
+This is the core privacy guarantee: the borrower proves they *deserved* the
+loan without revealing *why*.
+
 ## Why RISC Zero instead of the existing GKR pipeline
 
 This started from [`zkml-dup`](../readme.md) — an ONNX → GKR circuit
